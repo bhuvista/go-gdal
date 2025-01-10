@@ -1,0 +1,121 @@
+#include "godal.h"
+#include <string.h>
+
+GDALDatasetH GODALOpen(const char* filename, int access) {
+    return static_cast<GDALDatasetH>(GDALOpen(filename, static_cast<GDALAccess>(access)));
+}
+
+void GODALClose(GDALDatasetH dataset) {
+    if (dataset != NULL) {
+        GDALClose(dataset);
+    }
+}
+
+CPLErr GODALFlush(GDALDatasetH dataset) {
+    if (dataset == NULL) return CE_Failure;
+    return static_cast<GDALDataset*>(dataset)->FlushCache();
+}
+
+const char* GODALGetProjectionRef(GDALDatasetH dataset) {
+    if (dataset == NULL) return NULL;
+    return GDALGetProjectionRef(dataset);
+}
+
+CPLErr GODALSetProjection(GDALDatasetH dataset, const char* projection) {
+    if (dataset == NULL) return CE_Failure;
+    return GDALSetProjection(dataset, projection);
+}
+
+CPLErr GODALGetGeoTransform(GDALDatasetH dataset, double* transform) {
+    if (dataset == NULL) return CE_Failure;
+    return GDALGetGeoTransform(dataset, transform);
+}
+
+CPLErr GODALSetGeoTransform(GDALDatasetH dataset, double* transform) {
+    if (dataset == NULL) return CE_Failure;
+    return GDALSetGeoTransform(dataset, transform);
+}
+
+GDALRasterBandH GODALGetRasterBand(GDALDatasetH dataset, int band) {
+    if (dataset == NULL) return NULL;
+    return GDALGetRasterBand(dataset, band);
+}
+
+CPLErr GODALGetRasterNoDataValue(GDALRasterBandH band, double* val, int* hasval) {
+    if (band == NULL) return CE_Failure;
+    *val = GDALGetRasterNoDataValue(band, hasval);
+    return CE_None;
+}
+
+CPLErr GODALSetRasterNoDataValue(GDALRasterBandH band, double val) {
+    if (band == NULL) return CE_Failure;
+    return GDALSetRasterNoDataValue(band, val);
+}
+
+CPLErr GODALDeleteRasterNoDataValue(GDALRasterBandH band) {
+    if (band == NULL) return CE_Failure;
+    return GDALDeleteRasterNoDataValue(band);
+}
+
+CPLErr GODALRasterIO(GDALRasterBandH band, GDALRWFlag rw,
+    int xoff, int yoff, int xsize, int ysize,
+    void* buffer,
+    int buf_xsize, int buf_ysize,
+    GDALDataType buf_type,
+    int pixel_space, int line_space) {
+    
+    if (band == NULL) return CE_Failure;
+    return GDALRasterIO(band, rw, xoff, yoff, xsize, ysize,
+        buffer, buf_xsize, buf_ysize, buf_type,
+        pixel_space, line_space);
+}
+
+void GODALError(const char* msg, const char* file, int line) {
+    CPLError(CE_Failure, CPLE_AppDefined, "%s (%s:%d)", msg, file, line);
+}
+
+GDALDriverH GODALGetDriverByName(const char* name) {
+    return GDALGetDriverByName(name);
+}
+
+GDALDatasetH GODALCreate(GDALDriverH driver,
+    const char* filename,
+    int width, int height, int bands,
+    GDALDataType datatype,
+    char** options) {
+    
+    if (driver == NULL) return NULL;
+    return GDALCreate(driver, filename, width, height, bands, datatype, options);
+}
+
+void* GODALCreateGenImgProjTransformer(GDALDatasetH src_ds,
+    const char* src_wkt,
+    GDALDatasetH dst_ds,
+    const char* dst_wkt,
+    int approximate) {
+    
+    return GDALCreateGenImgProjTransformer(src_ds, src_wkt, dst_ds, dst_wkt, approximate, 0.0, 1);
+}
+
+GDALDatasetH GODALAutoCreateWarpedVRT(GDALDatasetH src_ds,
+    const char* src_wkt,
+    const char* dst_wkt,
+    GDALResampleAlg eResampleAlg,
+    double maxerror,
+    const GDALWarpOptions* options) {
+    
+    return GDALAutoCreateWarpedVRT(src_ds, src_wkt, dst_wkt, eResampleAlg, maxerror, options);
+}
+
+GDALDatasetH GODALBuildVRT(const char* dest,
+    char** sources,
+    GDALBuildVRTOptions* options,
+    int* can_use_virtual_io) {
+    
+    int useVirtualIO = TRUE;
+    GDALDatasetH vrt = GDALBuildVRT(dest, -1, NULL, sources, options, &useVirtualIO);
+    if (can_use_virtual_io != NULL) {
+        *can_use_virtual_io = useVirtualIO;
+    }
+    return vrt;
+}
