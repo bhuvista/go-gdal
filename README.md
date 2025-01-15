@@ -8,7 +8,6 @@ Gorio is a Go package designed to provide a wrapper around the powerful Geospati
 - Convert raster datasets to various formats (e.g., PNG, GeoTIFF).
 - Retrieve dataset metadata such as size, bands, and bounds.
 - Perform geospatial transformations and projections.
-- Utilize GDAL utilities like `GDALTranslate` for format conversion.
 
 ---
 
@@ -47,7 +46,7 @@ Gorio is a Go package designed to provide a wrapper around the powerful Geospati
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/gorio.git
+git clone https://github.com/bhuvista/gorio.git
 cd gorio
 ```
 
@@ -63,7 +62,7 @@ make test
 
 ### 4. Add Gorio to Your Go Project
 ```bash
-go get github.com/yourusername/gorio
+go get github.com/bhuvista/gorio
 ```
 
 ---
@@ -78,7 +77,7 @@ import (
     "fmt"
     "log"
 
-    "github.com/yourusername/gorio"
+    "github.com/bhuvista/gorio"
 )
 
 func main() {
@@ -99,7 +98,7 @@ package main
 import (
     "log"
 
-    "github.com/yourusername/gorio"
+    "github.com/bhuvista/gorio"
 )
 
 func main() {
@@ -161,7 +160,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 ## Contributing
 
-Contributions are welcome! Please open issues or submit pull requests on the [GitHub repository](https://github.com/yourusername/gorio).
+Contributions are welcome! Please open issues or submit pull requests on the [GitHub repository](https://github.com/bhuvista/gorio).
 
 ---
 
