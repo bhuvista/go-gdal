@@ -1,33 +1,33 @@
+// gorio.go
 package gorio
 
 /*
-#include "../gorio.h"
-#include <stdlib.h>
-
-#cgo pkg-config: gdal
-#cgo CXXFLAGS: -std=c++15
-#cgo LDFLAGS: -ldl
+#cgo CXXFLAGS: -std=c++11 -I/opt/homebrew/Cellar/gdal/3.10.0_4/include
+#cgo LDFLAGS: -L/opt/homebrew/Cellar/gdal/3.10.0_4/lib -lgdal
+#cgo darwin LDFLAGS: -Wl,-rpath,/opt/homebrew/Cellar/gdal/3.10.0_4/lib
+#include <gdal.h>
+#include "gorio.h"
 */
 import "C"
 import (
 	"errors"
 	"fmt"
-	"runtime"
+	"strconv"
 	"unsafe"
 )
 
-// Dataset represents a raster dataset
 type Dataset struct {
 	handle C.DatasetHandle
 }
 
-// RasterBand represents a single band in a dataset
-type RasterBand struct {
-	handle  C.BandHandle
-	dataset *Dataset
+type DatasetInfo struct {
+	info C.DatasetInfo
 }
 
-// Bounds represents the spatial extent of a dataset
+type Band struct {
+	handle C.BandHandle
+}
+
 type Bounds struct {
 	Left   float64
 	Bottom float64
@@ -35,22 +35,32 @@ type Bounds struct {
 	Top    float64
 }
 
-// Open opens a raster dataset for reading
-func Open(filename string) (*Dataset, error) {
-	cFilename := C.CString(filename)
-	defer C.free(unsafe.Pointer(cFilename))
+// DataType represents GDAL data types
+type DataType int32
 
-	handle := C.GOrioOpenDataset(cFilename)
+// GDAL data type constants
+const (
+	Float32 DataType = 6 // GDT_Float32
+	Float64 DataType = 7 // GDT_Float64
+	Int32   DataType = 5 // GDT_Int32
+)
+
+func init() {
+	C.GDALAllRegister()
+}
+
+func Open(filename string) (*Dataset, error) {
+	cfilename := C.CString(filename)
+	defer C.free(unsafe.Pointer(cfilename))
+
+	handle := C.GOrioOpenDataset(cfilename)
 	if handle == nil {
 		return nil, errors.New("failed to open dataset")
 	}
 
-	ds := &Dataset{handle: handle}
-	runtime.SetFinalizer(ds, (*Dataset).Close)
-	return ds, nil
+	return &Dataset{handle: handle}, nil
 }
 
-// Close closes the dataset and frees resources
 func (ds *Dataset) Close() {
 	if ds.handle != nil {
 		C.GOrioCloseDataset(ds.handle)
@@ -58,8 +68,7 @@ func (ds *Dataset) Close() {
 	}
 }
 
-// Bounds returns the spatial bounds of the dataset
-func (ds *Dataset) Bounds() (*Bounds, error) {
+func (ds *Dataset) GetBounds() (*Bounds, error) {
 	var bounds C.Bounds
 	if C.GOrioGetDatasetBounds(ds.handle, &bounds) != 0 {
 		return nil, errors.New("failed to get bounds")
@@ -73,138 +82,178 @@ func (ds *Dataset) Bounds() (*Bounds, error) {
 	}, nil
 }
 
-// GetCRS returns the coordinate reference system as WKT
 func (ds *Dataset) GetCRS() (string, error) {
-	crs := C.GOrioGetDatasetCRS(ds.handle)
-	if crs == nil {
+	wkt := C.GOrioGetDatasetCRS(ds.handle)
+	if wkt == nil {
 		return "", errors.New("failed to get CRS")
 	}
-	defer C.free(unsafe.Pointer(crs))
-
-	return C.GoString(crs), nil
+	defer C.free(unsafe.Pointer(wkt))
+	return C.GoString(wkt), nil
 }
 
-// GetBand returns a specific raster band (1-based index)
-func (ds *Dataset) GetBand(bandNum int) (*RasterBand, error) {
+func (ds *Dataset) GetEPSGCode() (int, error) {
+	wkt := C.GOrioGetDatasetCRS(ds.handle)
+	if wkt == nil {
+		return 0, errors.New("failed to get CRS")
+	}
+	defer C.free(unsafe.Pointer(wkt))
+
+	// Convert Go string to C-style string (null-terminated)
+	cWkt := C.CString(C.GoString(wkt))
+	defer C.free(unsafe.Pointer(cWkt))
+
+	authorityName := C.CString("EPSG")
+	defer C.free(unsafe.Pointer(authorityName))
+
+	authorityCode := C.GOrioGetAuthorityCode(cWkt)
+	if authorityCode == nil {
+		return 0, errors.New("EPSG code not found or invalid")
+	}
+	defer C.free(unsafe.Pointer(authorityCode))
+
+	epsgCode, err := strconv.Atoi(C.GoString(authorityCode))
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse EPSG code: %w", err)
+	}
+
+	return epsgCode, nil
+}
+
+func (ds *Dataset) GetBand(bandNum int) (*Band, error) {
 	handle := C.GOrioGetRasterBand(ds.handle, C.int(bandNum))
 	if handle == nil {
-		return nil, fmt.Errorf("failed to get band %d", bandNum)
+		return nil, errors.New("failed to get band")
 	}
-
-	return &RasterBand{
-		handle:  handle,
-		dataset: ds,
-	}, nil
+	return &Band{handle: handle}, nil
 }
 
-// Read reads data from the specified window into the provided buffer
-func (rb *RasterBand) Read(xOff, yOff, xSize, ySize int, buffer interface{}) error {
-	switch buf := buffer.(type) {
+func (b *Band) ReadFloat32(xoff, yoff, xsize, ysize int) ([]float32, error) {
+	buffer := make([]float32, xsize*ysize)
+	if C.GOrioReadBandFloat32(b.handle, C.int(xoff), C.int(yoff),
+		C.int(xsize), C.int(ysize), unsafe.Pointer(&buffer[0])) != 0 {
+		return nil, errors.New("failed to read band data")
+	}
+	return buffer, nil
+}
+
+func (b *Band) ReadFloat64(xoff, yoff, xsize, ysize int) ([]float64, error) {
+	buffer := make([]float64, xsize*ysize)
+	if C.GOrioReadBandFloat64(b.handle, C.int(xoff), C.int(yoff),
+		C.int(xsize), C.int(ysize), unsafe.Pointer(&buffer[0])) != 0 {
+		return nil, errors.New("failed to read band data")
+	}
+	return buffer, nil
+}
+
+func (b *Band) ReadInt32(xoff, yoff, xsize, ysize int) ([]int32, error) {
+	buffer := make([]int32, xsize*ysize)
+	if C.GOrioReadBandInt32(b.handle, C.int(xoff), C.int(yoff),
+		C.int(xsize), C.int(ysize), unsafe.Pointer(&buffer[0])) != 0 {
+		return nil, errors.New("failed to read band data")
+	}
+	return buffer, nil
+}
+
+func Create(filename string, width, height, bands int, datatype DataType) (*Dataset, error) {
+	cfilename := C.CString(filename)
+	defer C.free(unsafe.Pointer(cfilename))
+	handle := C.GOrioCreate(cfilename, C.int(width), C.int(height), C.int(bands),
+		C.GDALDataType(datatype), nil)
+
+	if handle == nil {
+		return nil, errors.New("failed to create dataset")
+	}
+	return &Dataset{handle: handle}, nil
+}
+
+func (ds *Dataset) SetGeoTransform(transform [6]float64) error {
+	if C.GOrioSetGeoTransform(ds.handle, (*C.double)(&transform[0])) != 0 {
+		return errors.New("failed to set geotransform")
+	}
+	return nil
+}
+
+func (ds *Dataset) SetProjection(wkt string) error {
+	cwkt := C.CString(wkt)
+	defer C.free(unsafe.Pointer(cwkt))
+	if C.GOrioSetProjection(ds.handle, cwkt) != 0 {
+		return errors.New("failed to set projection")
+	}
+	return nil
+}
+
+func (b *Band) SetNoDataValue(nodata float64) error {
+	if C.GOrioSetNoDataValue(b.handle, C.double(nodata)) != 0 {
+		return errors.New("failed to set nodata value")
+	}
+	return nil
+}
+
+func (b *Band) Write(xoff, yoff, xsize, ysize int, data interface{}) error {
+	var dtype C.GDALDataType
+
+	switch v := data.(type) {
 	case []float32:
-		return rb.readFloat32(xOff, yOff, xSize, ySize, buf)
+		dtype = C.GDT_Float32
+		if C.GOrioWriteBand(b.handle, C.int(xoff), C.int(yoff), C.int(xsize), C.int(ysize),
+			unsafe.Pointer(&v[0]), dtype) != 0 {
+			return errors.New("failed to write float32 band data")
+		}
 	case []float64:
-		return rb.readFloat64(xOff, yOff, xSize, ySize, buf)
+		dtype = C.GDT_Float64
+		if C.GOrioWriteBand(b.handle, C.int(xoff), C.int(yoff), C.int(xsize), C.int(ysize),
+			unsafe.Pointer(&v[0]), dtype) != 0 {
+			return errors.New("failed to write float64 band data")
+		}
 	case []int32:
-		return rb.readInt32(xOff, yOff, xSize, ySize, buf)
+		dtype = C.GDT_Int32
+		if C.GOrioWriteBand(b.handle, C.int(xoff), C.int(yoff), C.int(xsize), C.int(ysize),
+			unsafe.Pointer(&v[0]), dtype) != 0 {
+			return errors.New("failed to write int32 band data")
+		}
 	default:
-		return fmt.Errorf("unsupported buffer type")
-	}
-}
-
-func (rb *RasterBand) readFloat32(xOff, yOff, xSize, ySize int, buffer []float32) error {
-	if len(buffer) < xSize*ySize {
-		return errors.New("buffer too small")
-	}
-
-	if C.GOrioReadBandFloat32(rb.handle, C.int(xOff), C.int(yOff),
-		C.int(xSize), C.int(ySize), unsafe.Pointer(&buffer[0])) != 0 {
-		return errors.New("failed to read band data")
+		return errors.New("unsupported data type")
 	}
 	return nil
 }
 
-func (rb *RasterBand) readFloat64(xOff, yOff, xSize, ySize int, buffer []float64) error {
-	if len(buffer) < xSize*ySize {
-		return errors.New("buffer too small")
+func (ds *Dataset) GetGeoTransform() ([6]float64, error) {
+	var transform [6]float64
+	if C.GOrioGetGeoTransform(ds.handle, (*C.double)(&transform[0])) != 0 {
+		return [6]float64{}, errors.New("failed to get geotransform")
+	}
+	return transform, nil
+}
+
+func (ds *Dataset) GetDatasetInfo() (*DatasetInfo, error) {
+	info := C.GOrioGetDatasetInfo(ds.handle)
+	return &DatasetInfo{info: info}, nil
+}
+
+func (ds *Dataset) Width() (int, error) {
+	info := C.GOrioGetDatasetInfo(ds.handle)
+	return int(info.width), nil
+}
+
+func (ds *Dataset) Height() (int, error) {
+	info := C.GOrioGetDatasetInfo(ds.handle)
+	return int(info.height), nil
+}
+
+func (ds *Dataset) Bands() (int, error) {
+	info := C.GOrioGetDatasetInfo(ds.handle)
+	return int(info.bandCount), nil
+}
+
+func (ds *Dataset) ToPng(outputFilename string) error {
+	format := "PNG"
+	cOutputFilename := C.CString(outputFilename)
+	defer C.free(unsafe.Pointer(cOutputFilename))
+
+	result := C.GOrioConvertToImage(ds.handle, cOutputFilename, C.CString(format), nil)
+	if result != 0 {
+		return fmt.Errorf("failed to convert dataset to %s", format)
 	}
 
-	if C.GOrioReadBandFloat64(rb.handle, C.int(xOff), C.int(yOff),
-		C.int(xSize), C.int(ySize), unsafe.Pointer(&buffer[0])) != 0 {
-		return errors.New("failed to read band data")
-	}
 	return nil
-}
-
-func (rb *RasterBand) readInt32(xOff, yOff, xSize, ySize int, buffer []int32) error {
-	if len(buffer) < xSize*ySize {
-		return errors.New("buffer too small")
-	}
-
-	if C.GOrioReadBandInt32(rb.handle, C.int(xOff), C.int(yOff),
-		C.int(xSize), C.int(ySize), unsafe.Pointer(&buffer[0])) != 0 {
-		return errors.New("failed to read band data")
-	}
-	return nil
-}
-
-// CreateCopy creates a copy of the dataset with optional transformation
-func CreateCopy(srcDS *Dataset, dstFilename string, options map[string]string) (*Dataset, error) {
-	cDstFilename := C.CString(dstFilename)
-	defer C.free(unsafe.Pointer(cDstFilename))
-
-	// Convert options to C strings
-	cOptions := make([]*C.char, 0, len(options)+1)
-	for k, v := range options {
-		opt := fmt.Sprintf("%s=%s", k, v)
-		cOpt := C.CString(opt)
-		cOptions = append(cOptions, cOpt)
-	}
-	cOptions = append(cOptions, nil)
-	defer func() {
-		for _, cOpt := range cOptions {
-			if cOpt != nil {
-				C.free(unsafe.Pointer(cOpt))
-			}
-		}
-	}()
-
-	handle := C.GOrioCreateCopy(srcDS.handle, cDstFilename, (**C.char)(&cOptions[0]))
-	if handle == nil {
-		return nil, errors.New("failed to create dataset copy")
-	}
-
-	ds := &Dataset{handle: handle}
-	runtime.SetFinalizer(ds, (*Dataset).Close)
-	return ds, nil
-}
-
-// Reproject reprojects the dataset to a new coordinate reference system
-func (ds *Dataset) Reproject(dstCRS string, options map[string]string) (*Dataset, error) {
-	cDstCRS := C.CString(dstCRS)
-	defer C.free(unsafe.Pointer(cDstCRS))
-
-	// Convert options similar to CreateCopy
-	cOptions := make([]*C.char, 0, len(options)+1)
-	for k, v := range options {
-		opt := fmt.Sprintf("%s=%s", k, v)
-		cOpt := C.CString(opt)
-		cOptions = append(cOptions, cOpt)
-	}
-	cOptions = append(cOptions, nil)
-	defer func() {
-		for _, cOpt := range cOptions {
-			if cOpt != nil {
-				C.free(unsafe.Pointer(cOpt))
-			}
-		}
-	}()
-
-	handle := C.GOrioReproject(ds.handle, cDstCRS, (**C.char)(&cOptions[0]))
-	if handle == nil {
-		return nil, errors.New("failed to reproject dataset")
-	}
-
-	newDS := &Dataset{handle: handle}
-	runtime.SetFinalizer(newDS, (*Dataset).Close)
-	return newDS, nil
 }

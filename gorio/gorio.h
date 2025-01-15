@@ -6,7 +6,6 @@
 // Core GDAL headers
 #include <gdal.h>
 #include <gdal_alg.h>
-#include <gdal_priv.h>
 #include <ogr_srs_api.h>
 #include <cpl_conv.h>
 #include "cpl_port.h"
@@ -16,13 +15,6 @@
 // Version check
 #if GDAL_VERSION_NUM < 3000000
     #error "This code is only compatible with GDAL version >= 3.0"
-#endif
-
-// Forward compatibility for GDAL 3.7 types
-#if GDAL_VERSION_NUM < GDAL_COMPUTE_VERSION(3, 7, 0)
-    typedef enum {
-        /*! 8-bit signed integer (GDAL >= 3.7) */ GDT_Int8 = 14
-    } FutureGDALDataType;
 #endif
 
 // Resampling algorithm definitions if not present
@@ -39,6 +31,14 @@ extern "C" {
  */
 typedef void* DatasetHandle;
 typedef void* BandHandle;
+
+typedef struct {
+    char *errMessage;
+    int handlerIdx;
+    int failed;
+    char **configOptions;
+} cctx;
+
 
 /**
  * Represents the spatial extent of a dataset
@@ -67,6 +67,15 @@ typedef enum {
     GORIO_ERROR_INVALID_PARAMS = 10 /* Invalid parameters */
 } GOrioError;
 
+/**
+ * Dataset info
+ */
+typedef struct {
+    int width;
+    int height;
+    int bandCount;
+} DatasetInfo;
+
 /* Dataset operations */
 
 /**
@@ -75,6 +84,38 @@ typedef enum {
  * @return Handle to the dataset or NULL on failure
  */
 DatasetHandle GOrioOpenDataset(const char* filename);
+
+/**
+ * Creates a new dataset
+ */
+DatasetHandle GOrioCreate(const char* filename, int width, int height, int bands,
+                         GDALDataType datatype, char** options);
+
+/**
+ * Gets the authority code from a WKT string
+ */
+char* GOrioGetAuthorityCode(const char* wkt);
+
+/**
+ * Sets the geotransform for a dataset
+ */
+int GOrioSetGeoTransform(DatasetHandle dataset, double* transform);
+
+/**
+ * Sets the projection for a dataset
+ */
+int GOrioSetProjection(DatasetHandle dataset, const char* wkt);
+
+/**
+ * Sets the nodata value for a band
+ */
+int GOrioSetNoDataValue(BandHandle band, double nodata);
+
+/**
+ * Writes data to a band
+ */
+int GOrioWriteBand(BandHandle band, int xoff, int yoff, int xsize, int ysize,
+                   void* buffer, GDALDataType dtype);
 
 /**
  * Closes a dataset and frees resources
@@ -89,6 +130,15 @@ void GOrioCloseDataset(DatasetHandle dataset);
  * @return 0 on success, error code otherwise
  */
 int GOrioGetDatasetBounds(DatasetHandle dataset, Bounds* bounds);
+
+/**
+ * Warps (reprojects) a dataset to a new coordinate system
+ * @param src Source dataset
+ * @param dst_crs Target CRS as WKT string
+ * @param options Warp options (can be NULL)
+ * @return Handle to warped dataset
+ */
+DatasetHandle GOrioWarp(DatasetHandle src, const char* dst_crs, char** options);
 
 /**
  * Gets the coordinate reference system as WKT
@@ -124,6 +174,11 @@ DatasetHandle GOrioReproject(DatasetHandle src, const char* dst_crs, char** opti
  * @return Handle to VRT dataset or NULL on failure
  */
 DatasetHandle GOrioBuildVRT(const char* filename, int count, DatasetHandle* datasets, char** options);
+
+/**
+ * Gets the geotransform for a dataset
+ */
+int GOrioGetGeoTransform(DatasetHandle dataset, double* transform);
 
 /* Band operations */
 
@@ -183,6 +238,16 @@ const char* GOrioGetLastErrorMsg();
  * Clears the last error
  */
 void GOrioClearError();
+
+/**
+ * Get dataset info
+ */
+DatasetInfo GOrioGetDatasetInfo(DatasetHandle dataset);
+
+/**
+ * Convert dataset to image
+ */
+int GOrioConvertToImage(DatasetHandle dataset, const char* outputFilename, const char* format, char** options);
 
 #ifdef __cplusplus
 }
