@@ -1,4 +1,4 @@
-# Gorio: A Go Wrapper for GDAL
+# Gorio: A Go Wrapper for GDAL (WORK IN PROGRESS)
 
 Gorio is a Go package designed to provide a wrapper around the powerful Geospatial Data Abstraction Library (GDAL). It facilitates raster data manipulation, format conversion, and geospatial transformations while seamlessly integrating GDAL’s functionality into Go applications.
 
